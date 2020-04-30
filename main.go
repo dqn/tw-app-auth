@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/dghubble/oauth1"
+	"github.com/dghubble/oauth1/twitter"
 	"gopkg.in/yaml.v2"
 )
 
@@ -63,19 +64,51 @@ func run() error {
 		return err
 	}
 
-	e := echo.New()
+	o := oauth1.Config{
+		ConsumerKey:    c.ConsumerKey,
+		ConsumerSecret: c.ConsumerSecret,
+		CallbackURL:    c.CallbackURL,
+		Endpoint:       twitter.AuthorizeEndpoint,
+	}
 
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	rt, rs, err := o.RequestToken()
+	if err != nil {
+		return err
+	}
 
-	e.GET(u.Path, hello)
+	authorizationURL, err := o.AuthorizationURL(rt)
+	fmt.Println(authorizationURL)
+
+	callback := func(w http.ResponseWriter, r *http.Request) {
+		_, verifier, err := oauth1.ParseAuthorizationCallback(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		at, as, err := o.AccessToken(rt, rs, verifier)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		io.WriteString(w, "ok\n")
+		fmt.Println("Access Token: ", at)
+		fmt.Println("Access Secret:", as)
+	}
 
 	port, err := getPort(u)
 	if err != nil {
 		return err
 	}
 
-	e.Logger.Fatal(e.Start(":" + port))
+	path := u.Path
+	if path == "" {
+		path = "/"
+	}
+
+	http.HandleFunc(path, callback)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 
 	return nil
 }
@@ -85,8 +118,4 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func hello(c echo.Context) error {
-	return c.String(http.StatusOK, "Hello, World!")
 }
