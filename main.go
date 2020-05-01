@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -39,27 +40,8 @@ func loadConfig(path string) (*config, error) {
 	return &c, nil
 }
 
-func getPort(u *url.URL) (string, error) {
-	if u.Port() != "" {
-		return u.Port(), nil
-	}
-	switch u.Scheme {
-	case "http":
-		return "80", nil
-	case "https":
-		return "443", nil
-	default:
-		return "", fmt.Errorf("invalid scheme %s", u.Scheme)
-	}
-}
-
 func run() error {
 	c, err := loadConfig("./config.yml")
-	if err != nil {
-		return err
-	}
-
-	u, err := url.Parse(c.CallbackURL)
 	if err != nil {
 		return err
 	}
@@ -79,7 +61,28 @@ func run() error {
 	authorizationURL, err := o.AuthorizationURL(rt)
 	fmt.Println(authorizationURL)
 
-	callback := func(w http.ResponseWriter, r *http.Request) {
+	u, err := url.Parse(c.CallbackURL)
+	if err != nil {
+		return err
+	}
+
+	port, path := u.Port(), u.Path
+	if port == "" {
+		port = "80"
+	}
+	if path == "" {
+		path = "/"
+	}
+
+	mux := http.NewServeMux()
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+
+	ch := make(chan error, 1)
+
+	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		_, verifier, err := oauth1.ParseAuthorizationCallback(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -95,20 +98,21 @@ func run() error {
 		io.WriteString(w, "ok\n")
 		fmt.Println("Access Token: ", at)
 		fmt.Println("Access Secret:", as)
-	}
+		close(ch)
+	})
 
-	port, err := getPort(u)
-	if err != nil {
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			ch <- err
+		}
+	}()
+	if <-ch != nil {
 		return err
 	}
 
-	path := u.Path
-	if path == "" {
-		path = "/"
+	if err = srv.Shutdown(context.TODO()); err != nil {
+		return err
 	}
-
-	http.HandleFunc(path, callback)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
 
 	return nil
 }
