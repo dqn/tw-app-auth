@@ -82,11 +82,11 @@ func run() error {
 			ch <- err
 		}
 	}()
-	if <-ch != nil {
+	if err := <-ch; err != nil {
 		return err
 	}
 
-	if err = srv.Shutdown(context.TODO()); err != nil {
+	if err := srv.Shutdown(context.TODO()); err != nil {
 		return err
 	}
 
