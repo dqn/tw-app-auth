@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,44 +11,20 @@ import (
 
 	"github.com/dghubble/oauth1"
 	"github.com/dghubble/oauth1/twitter"
-	"gopkg.in/yaml.v2"
 )
 
-type config struct {
-	ConsumerKey    string `yaml:"consumer_key"`
-	ConsumerSecret string `yaml:"consumer_secret"`
-	CallbackURL    string `yaml:"callback_url"`
-}
-
-func loadConfig(path string) (*config, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
-	b, err := ioutil.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-
-	var c config
-	if err = yaml.Unmarshal(b, &c); err != nil {
-		return nil, err
-	}
-
-	return &c, nil
-}
-
 func run() error {
-	c, err := loadConfig("./config.yml")
-	if err != nil {
-		return err
+	if len(os.Args) != 4 {
+		fmt.Println("Usage: go run main.go <consumer key> <consumer secret> <callback url>")
+		os.Exit(2)
 	}
+
+	ck, cs, callbackURL := os.Args[1], os.Args[2], os.Args[3]
 
 	o := oauth1.Config{
-		ConsumerKey:    c.ConsumerKey,
-		ConsumerSecret: c.ConsumerSecret,
-		CallbackURL:    c.CallbackURL,
+		ConsumerKey:    ck,
+		ConsumerSecret: cs,
+		CallbackURL:    callbackURL,
 		Endpoint:       twitter.AuthorizeEndpoint,
 	}
 
@@ -61,7 +36,7 @@ func run() error {
 	authorizationURL, err := o.AuthorizationURL(rt)
 	fmt.Println(authorizationURL)
 
-	u, err := url.Parse(c.CallbackURL)
+	u, err := url.Parse(callbackURL)
 	if err != nil {
 		return err
 	}
@@ -79,7 +54,6 @@ func run() error {
 		Addr:    ":" + port,
 		Handler: mux,
 	}
-
 	ch := make(chan error, 1)
 
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +70,10 @@ func run() error {
 		}
 
 		io.WriteString(w, "ok\n")
-		fmt.Println("Access Token: ", at)
-		fmt.Println("Access Secret:", as)
+
+		fmt.Println("access token: ", at)
+		fmt.Println("access secret:", as)
+
 		close(ch)
 	})
 
